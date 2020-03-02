@@ -8,28 +8,34 @@ PoolMemoryAllocator<Complex> poolMemoryManager(7,false,true);
 
 int main()
 {
-        const int nIteration = 1;
+        const int nIteration = 1000;
         const int nAllocation = 2000;
         poolMemoryManager.resetPoolSize(nIteration * nAllocation);
         std::cout << "Time Test : ( Many (De-)Allocation Per Iteration )\n";
         std::cout << "no.Iteration = " << nIteration << " ,no.(De-)Allocation/Iteration = " << nAllocation << "\n";
         Complex *array[nAllocation];
-        Timer allocationTime;
-        allocationTime.setTimeUnit(TimeUnit::ms);
-        allocationTime.start();
+        Timer poolAllocationTime,allocationTime,freeTime;
+        poolAllocationTime.setTimeUnit(TimeUnit::ms);
+        poolAllocationTime.start();
         for (int i = 0; i < nIteration; i++)
         {
+                allocationTime.start();
                 for (int j = 0; j < nAllocation; j++)
                         array[j] = new Complex(i, j);
+                allocationTime.end();
+                freeTime.start();
                 for (int j = 0; j < nAllocation; j++)
                         delete array[j];
+                freeTime.end();
         }
-        allocationTime.end();
-        std::cout << "Time Test = " << allocationTime.getTime() << allocationTime.getTimeUnitString() << std::endl;
+        poolAllocationTime.end();
+        std::cout << "Time Test = " << poolAllocationTime.getTime() << poolAllocationTime.getTimeUnitString() << std::endl;
+        std::cout << "Allocation Time = " << allocationTime.getTime() << allocationTime.getTimeUnitString() << std::endl;
+        std::cout << "De-Allocation Time = " << freeTime.getTime() << freeTime.getTimeUnitString() << std::endl;
         std::cout << "=======================================\n\n";
 
         std::cout << "Random (De-)Allocations Test\n";
-        poolMemoryManager.resetPoolSize(7);
+        poolMemoryManager.resetPoolSize(10);
         poolMemoryManager.PrintMemory();
         Complex *c1 = new Complex(50, 50);
         Complex *c2 = new Complex(100, 100);
@@ -57,11 +63,12 @@ int main()
                 ComplexArray[i].c = i * 2;
                 printf(" --> [%i] = %p , (r,c) = (%f,%f)\n", i, ComplexArray + i, ComplexArray[i].r, ComplexArray[i].c);
         }
+        c1 = new Complex(6,6);
         poolMemoryManager.PrintMemory();
         delete[] ComplexArray;
         poolMemoryManager.PrintMemory();
         ComplexArray = nullptr;
-
+        delete c1;
         std::cout << "=======================================\n\n";
         std::cout << "Contiguous Allocated array Test\n";
         std::cout << "Allocating Complex[5] \n";

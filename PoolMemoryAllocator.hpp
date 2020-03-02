@@ -133,27 +133,33 @@ inline void PoolMemoryAllocator<T>::free(void *deleted)
                 {
                         n_objects = 1;
                 }
-                do
+
+                n_objects -= 1;
+                FreeStore *fs = _freeStoreHead;
+                if (nullptr == _freeStoreHead || restoredAddress < _freeStoreHead)
                 {
-                        n_objects -= 1;
-                        if (nullptr == _freeStoreHead || restoredAddress < _freeStoreHead)
+                        restoredAddress->next = _freeStoreHead;
+                        _freeStoreHead = restoredAddress;
+                }
+                else
+                {
+                        while (fs->next != nullptr && restoredAddress > fs->next)
                         {
-                                restoredAddress->next = _freeStoreHead;
-                                _freeStoreHead = restoredAddress;
+                                fs = fs->next;
                         }
-                        else
-                        {
-                                //Normal Sort
-                                FreeStore *fs = _freeStoreHead;
-                                while (fs->next != nullptr && restoredAddress > fs->next)
-                                {
-                                        fs = fs->next;
-                                }
-                                restoredAddress->next = fs->next;
-                                fs->next = restoredAddress;
-                        }
+                        // Found the start point to restore array objects.
+                        restoredAddress->next = fs->next;
+                        fs->next = restoredAddress;
+                }
+                // Continue from where we stopped.
+                while (n_objects)
+                {
+                        fs = restoredAddress;
                         restoredAddress = reinterpret_cast<FreeStore *>(reinterpret_cast<char *>(restoredAddress) + _objectSize);
-                } while (n_objects);
+                        restoredAddress->next = fs->next;
+                        fs->next = restoredAddress;
+                        n_objects -= 1;
+                }
         }
         else
         {
