@@ -2,7 +2,7 @@
 #include "PoolMemoryAllocator.hpp"
 #include <iostream>
 
-PoolMemoryAllocator<Complex> poolMemoryManager;
+extern PoolMemoryAllocator<Complex> poolMemoryManager;
 
 #ifdef OVERLOADED_MEMORY
 

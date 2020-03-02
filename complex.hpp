@@ -8,8 +8,8 @@ class Complex
 public:
         Complex()
         {
-                this->r = 0xff;
-                this->c = 0xff;
+                this->r = 0xde;
+                this->c = 0xad;
         }
         Complex(double a, double b) : r(a), c(b) {}
         Complex add(const Complex &c2)

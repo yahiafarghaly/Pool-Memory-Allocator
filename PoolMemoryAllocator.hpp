@@ -15,27 +15,27 @@ class PoolMemoryAllocator : public IMemoryManager
 
         std::size_t _objectSize;
         std::size_t _poolSize;
-        std::size_t _poolMemoryIncreaseCount;
-        FreeStore *_freeStoreHead;
-        void *_poolHead;
+
+        FreeStore *_freeStore_ObjectHead;
+        void *_pool_ObjectHead;
+        void *_pool_ObjectTail;
+
+        const bool _supportMultiThreading;
+        const bool _supportArrayAllocation;
+
         std::mutex _allocator_mutex;
         std::mutex _free_mutex;
-        std::map<void *, void *> _p2pTable;
+        std::map<void *, std::size_t> _arrayAllocationTable;
 
-        void expandPoolSize(void);
         void init(void);
         void cleanUp(void);
-        void *allocateSingleObject(void);
 
 public:
-        PoolMemoryAllocator()
-        {
-                _poolSize = 10;
-                init();
-        }
-        PoolMemoryAllocator(const std::size_t &poolSize)
+        explicit PoolMemoryAllocator(const std::size_t &poolSize = 1024, const bool &supportMultiThreading = false, const bool &supportArrayAllocation = false)
+            : _supportMultiThreading(supportArrayAllocation), _supportArrayAllocation(supportArrayAllocation)
         {
                 _poolSize = poolSize;
+                _objectSize = (sizeof(T) > sizeof(FreeStore *)) ? sizeof(T) : sizeof(FreeStore *);
                 init();
         }
         virtual ~PoolMemoryAllocator()
@@ -44,160 +44,162 @@ public:
         }
         void *allocate(const std::size_t &) override;
         void free(void *) override;
-        void checkMemory(void);
+        // Memory Methods
+        void PrintMemory(void);
+        void resetPoolSize(const std::size_t &poolSize);
 };
-
-template <class T>
-inline void *PoolMemoryAllocator<T>::allocateSingleObject(void)
-{
-        if (nullptr == _freeStoreHead)
-        {
-                expandPoolSize();
-        }
-        FreeStore *head = _freeStoreHead;
-        _freeStoreHead = head->next;
-        return head;
-}
 
 template <class T>
 inline void *PoolMemoryAllocator<T>::allocate(const std::size_t &size)
 {
-        const std::lock_guard<std::mutex> lock(this->_allocator_mutex);
+        if (_supportMultiThreading)
+        {
+                const std::lock_guard<std::mutex> lock(this->_allocator_mutex);
+        }
+        auto allocateObject = [this](void) -> void * {
+                FreeStore *head = _freeStore_ObjectHead;
+                _freeStore_ObjectHead = head->next;
+                return head;
+        };
 
+        if (nullptr == _freeStore_ObjectHead)
+        {
+                return nullptr;
+        }
         if (size == _objectSize)
         {
-                return this->allocateSingleObject();
+                return allocateObject();
         }
 
-        const std::size_t n_objects = size / _objectSize + (size % _objectSize);
         void *startAddress = nullptr;
-
-        switch (n_objects)
+        if (_supportArrayAllocation)
         {
-        case 0:
-                break;
-        case 1:
-                startAddress = this->allocateSingleObject();
-                _p2pTable.insert(std::pair<void *, void *>(startAddress, nullptr));
-                break;
-        default:
-                void *currentAddress = nullptr;
-                void *nextAddress = nullptr;
-                const std::size_t nAllocations = (n_objects % 2) ? n_objects - 1 : n_objects;
-                startAddress = this->allocateSingleObject();
-                printf("%p reserved as start Address\n",startAddress);
-                currentAddress = startAddress;
-                for (int i = 0; i < nAllocations; i += 1) // [BUG]: doesn't work with odd array sizes.
+                const std::size_t n_objects = (size / _objectSize) + (size % _objectSize);
+                auto head = _freeStore_ObjectHead;
+                auto objectCount = 0;
+                startAddress = reinterpret_cast<void *>(head);
+                for (; n_objects != objectCount || head->next == nullptr;)
                 {
-                        if (i == n_objects - 1 && !(n_objects % 2))
+                        if (reinterpret_cast<char *>(head) + _objectSize == reinterpret_cast<char *>(head->next))
+                        {
+                                objectCount++;
+                                head = head->next;
+                                continue;
+                        }
+                        else
+                        {
+                                objectCount = 0;
                                 break;
-                        nextAddress = this->allocateSingleObject();
-                        printf("[%p]:[%p] reserved as [%i]\n",(char*)currentAddress + _objectSize,nextAddress,i+1);
-                        _p2pTable.insert(std::pair<void *, void *>(currentAddress, nextAddress));
-                        currentAddress = nextAddress;
+                        }
                 }
-                _p2pTable.insert(std::pair<void *, void *>(nextAddress, nullptr));
 
-                break;
+                if (n_objects != objectCount)
+                {
+                        return nullptr;
+                }
+                else
+                {
+                        startAddress = allocateObject();
+                        _arrayAllocationTable.insert(std::pair<void *, std::size_t>(startAddress, n_objects));
+                        for (auto i = 0; i < n_objects - 1; i++)
+                        {
+                                allocateObject();
+                        }
+                }
         }
-
         return startAddress;
 }
 
 template <class T>
 inline void PoolMemoryAllocator<T>::free(void *deleted)
 {
-        const std::lock_guard<std::mutex> lock(this->_free_mutex);
-        auto freeSingleAllocatedObject = [this](void *deletedObject) -> void {
-                FreeStore *head = static_cast<FreeStore *>(deletedObject);
-                head->next = _freeStoreHead;
-                _freeStoreHead = head;
-        };
-        auto startAddressIter = _p2pTable.find(deleted);
-        if (startAddressIter != _p2pTable.end())
+        if (_supportMultiThreading)
         {
-                void *nextAddress = startAddressIter->first;
-                void *deletedAddress = nullptr;
+                const std::lock_guard<std::mutex> lock(this->_free_mutex);
+        }
+        if (nullptr == deleted)
+        {
+                return;
+        }
+        FreeStore *restoredAddress = reinterpret_cast<FreeStore *>(deleted);
+        if (_supportArrayAllocation)
+        {
+                auto isItAllocated = _arrayAllocationTable.find(reinterpret_cast<void *>(restoredAddress));
+                std::size_t n_objects = 0;
+                if (isItAllocated != _arrayAllocationTable.end())
+                {
+                        n_objects = isItAllocated->second;
+                }
+                else
+                {
+                        n_objects = 1;
+                }
                 do
                 {
-                        freeSingleAllocatedObject(nextAddress);
-                        deletedAddress = nextAddress;
-                        nextAddress = _p2pTable.at(nextAddress);
-                        _p2pTable.erase(deletedAddress);
-                } while (nextAddress != nullptr);
+                        n_objects -= 1;
+                        if (nullptr == _freeStore_ObjectHead || restoredAddress < _freeStore_ObjectHead)
+                        {
+                                restoredAddress->next = _freeStore_ObjectHead;
+                                _freeStore_ObjectHead = restoredAddress;
+                        }
+                        else
+                        {
+                                //Normal Sort
+                                FreeStore *fs = _freeStore_ObjectHead;
+                                while (fs->next != nullptr && restoredAddress > fs->next)
+                                {
+                                        fs = fs->next;
+                                }
+                                restoredAddress->next = fs->next;
+                                fs->next = restoredAddress;
+                        }
+                        restoredAddress = reinterpret_cast<FreeStore *>(reinterpret_cast<char *>(restoredAddress) + _objectSize);
+                } while (n_objects);
         }
         else
         {
-                freeSingleAllocatedObject(deleted);
+                restoredAddress->next = _freeStore_ObjectHead;
+                _freeStore_ObjectHead = restoredAddress;
         }
 }
 
 template <class T>
-void PoolMemoryAllocator<T>::expandPoolSize(void)
+void PoolMemoryAllocator<T>::resetPoolSize(const std::size_t &poolSize)
 {
-        // FreeStore *head = reinterpret_cast<FreeStore *>(new char[_objectSize]);
-        // _freeStoreHead = head;
-        // printf("Allocating Head^ = %p\n", head);
-        // for (std::size_t i = 0; i < _poolSize - 1; i++)
-        // {
-        //         head->next = reinterpret_cast<FreeStore *>(new char[_objectSize]);
-        //         printf("Allocating ^ = %p , diff_sz = %d\n", head->next, head->next - head);
-        //         head = head->next;
-        // }
-        // head->next = nullptr;
-        _poolHead = new char[_objectSize * _poolSize];
-        printf("Pool->Head [%p] ,Pool->Tail [%p]\n", (char *)_poolHead, (char *)_poolHead + _objectSize * (_poolSize - 1));
-        printf("Pool Size = %d Objects\n", _poolSize);
-        printf("Object Size = %u bytes\n", _objectSize);
-        FreeStore *head = static_cast<FreeStore *>(_poolHead);
-        _freeStoreHead = head;
-        printf("Alloc_Head = %p\n", head);
-        for (std::size_t i = 1; i < _poolSize; i++)
-        {
-                head->next = reinterpret_cast<FreeStore*>(reinterpret_cast<char*>(_freeStoreHead) + i*_objectSize);
-                printf("Alloc_%p => %p\n",head ,head->next);
-                head = head->next;
-        }
-        printf("Alloc_%p => %p\n",head ,nullptr);
-        head->next = nullptr;
-        _poolMemoryIncreaseCount++;
+        cleanUp();
+        _poolSize = poolSize;
+        init();
 }
 
 template <class T>
 void PoolMemoryAllocator<T>::init(void)
 {
-        _objectSize = (sizeof(T) > sizeof(FreeStore *)) ? sizeof(T) : sizeof(FreeStore *);
-        _freeStoreHead = nullptr;
-        _poolMemoryIncreaseCount = 0;
-        expandPoolSize();
+        _freeStore_ObjectHead = nullptr;
+        /* Allocating The Objects Pool  */
+        _pool_ObjectHead = new char[_objectSize * _poolSize];
+        FreeStore *head = reinterpret_cast<FreeStore *>(_pool_ObjectHead);
+        _freeStore_ObjectHead = head;
+        for (std::size_t i = 1; i < _poolSize; i++)
+        {
+                head->next = reinterpret_cast<FreeStore *>(reinterpret_cast<char *>(_freeStore_ObjectHead) + i * _objectSize);
+                head = head->next;
+        }
+        _pool_ObjectTail = head;
+        head->next = nullptr;
 }
 
 template <class T>
 void PoolMemoryAllocator<T>::cleanUp(void)
 {
-        // FreeStore *nextPtr = _freeStoreHead;
-        // for (; nextPtr; nextPtr = _freeStoreHead)
-        // {
-
-        //         _freeStoreHead = _freeStoreHead->next;
-        //         if (_freeStoreHead == nullptr)
-        //         {
-        //                 printf("FreeStore Head = null\n");
-        //         }
-        //         printf("De-Allocate = %p\n", nextPtr);
-
-        //         delete[] nextPtr; // remember this was a char array
-        // }
-        printf("De-Allocate Pool = %p\n", _poolHead);
-        delete[] _poolHead;
+        if (nullptr != _pool_ObjectHead)
+                delete[] _pool_ObjectHead;
 }
 
 template <class T>
-void PoolMemoryAllocator<T>::checkMemory(void)
+void PoolMemoryAllocator<T>::PrintMemory(void)
 {
-        FreeStore *FSHead = _freeStoreHead;
+        FreeStore *FSHead = _freeStore_ObjectHead;
         printf("================== [Free Blocks] ================== \n");
-        printf("Free Head = 0x%X\n", reinterpret_cast<std::uintptr_t>(_freeStoreHead));
         if (nullptr == FSHead)
         {
                 printf("\tNo Free Blocks in the Pool\n");
@@ -208,12 +210,23 @@ void PoolMemoryAllocator<T>::checkMemory(void)
                 unsigned int idx = 1;
                 for (; sPtr; sPtr = FSHead)
                 {
-                        printf("0x%X -> ", reinterpret_cast<std::uintptr_t>(sPtr));
-                        FSHead = FSHead->next;
-
-                        if (idx > _poolSize * _poolMemoryIncreaseCount)
+                        if (_freeStore_ObjectHead == sPtr)
                         {
-                                printf("\n\033[1;31mBUG: @ idx = %u more than pool size = %lu objects\033[0m\n", idx, _poolSize * _poolMemoryIncreaseCount);
+                                printf("--> [0x%X] (pool head)\n", reinterpret_cast<std::uintptr_t>(sPtr));
+                        }
+                        else if (_pool_ObjectTail == sPtr)
+                        {
+                                printf("--> [0x%X] (pool end)\n", reinterpret_cast<std::uintptr_t>(sPtr));
+                        }
+                        else
+                        {
+                                printf("--> 0x%X\n", reinterpret_cast<std::uintptr_t>(sPtr));
+                        }
+
+                        FSHead = FSHead->next;
+                        if (idx > _poolSize)
+                        {
+                                printf("\n\033[1;31mBUG: @ idx = %u more than pool size = %lu objects\033[0m\n", idx, _poolSize);
                         }
                         ++idx;
                 }
