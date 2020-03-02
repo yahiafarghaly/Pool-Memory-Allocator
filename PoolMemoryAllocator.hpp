@@ -16,16 +16,15 @@ class PoolMemoryAllocator : public IMemoryManager
         std::size_t _objectSize;
         std::size_t _poolSize;
 
-        FreeStore *_freeStore_ObjectHead;
-        void *_pool_ObjectHead;
-        void *_pool_ObjectTail;
+        FreeStore *_freeStoreHead;
+        void *_poolHead;
+        void *_poolTail;
 
         const bool _supportMultiThreading;
         const bool _supportArrayAllocation;
 
-        std::mutex _allocator_mutex;
-        std::mutex _free_mutex;
-        std::map<void *, std::size_t> _arrayAllocationTable;
+        std::mutex _poolAccessMutex;
+        std::map<void *, std::size_t> _allocatedArraysTable;
 
         void init(void);
         void cleanUp(void);
@@ -54,15 +53,15 @@ inline void *PoolMemoryAllocator<T>::allocate(const std::size_t &size)
 {
         if (_supportMultiThreading)
         {
-                const std::lock_guard<std::mutex> lock(this->_allocator_mutex);
+                const std::lock_guard<std::mutex> lock(this->_poolAccessMutex);
         }
         auto allocateObject = [this](void) -> void * {
-                FreeStore *head = _freeStore_ObjectHead;
-                _freeStore_ObjectHead = head->next;
+                FreeStore *head = _freeStoreHead;
+                _freeStoreHead = head->next;
                 return head;
         };
 
-        if (nullptr == _freeStore_ObjectHead)
+        if (nullptr == _freeStoreHead)
         {
                 return nullptr;
         }
@@ -75,7 +74,7 @@ inline void *PoolMemoryAllocator<T>::allocate(const std::size_t &size)
         if (_supportArrayAllocation)
         {
                 const std::size_t n_objects = (size / _objectSize) + (size % _objectSize);
-                auto head = _freeStore_ObjectHead;
+                auto head = _freeStoreHead;
                 auto objectCount = 0;
                 startAddress = reinterpret_cast<void *>(head);
                 for (; n_objects != objectCount || head->next == nullptr;)
@@ -100,7 +99,7 @@ inline void *PoolMemoryAllocator<T>::allocate(const std::size_t &size)
                 else
                 {
                         startAddress = allocateObject();
-                        _arrayAllocationTable.insert(std::pair<void *, std::size_t>(startAddress, n_objects));
+                        _allocatedArraysTable.insert(std::pair<void *, std::size_t>(startAddress, n_objects));
                         for (auto i = 0; i < n_objects - 1; i++)
                         {
                                 allocateObject();
@@ -115,7 +114,7 @@ inline void PoolMemoryAllocator<T>::free(void *deleted)
 {
         if (_supportMultiThreading)
         {
-                const std::lock_guard<std::mutex> lock(this->_free_mutex);
+                const std::lock_guard<std::mutex> lock(this->_poolAccessMutex);
         }
         if (nullptr == deleted)
         {
@@ -124,9 +123,9 @@ inline void PoolMemoryAllocator<T>::free(void *deleted)
         FreeStore *restoredAddress = reinterpret_cast<FreeStore *>(deleted);
         if (_supportArrayAllocation)
         {
-                auto isItAllocated = _arrayAllocationTable.find(reinterpret_cast<void *>(restoredAddress));
+                auto isItAllocated = _allocatedArraysTable.find(reinterpret_cast<void *>(restoredAddress));
                 std::size_t n_objects = 0;
-                if (isItAllocated != _arrayAllocationTable.end())
+                if (isItAllocated != _allocatedArraysTable.end())
                 {
                         n_objects = isItAllocated->second;
                 }
@@ -137,15 +136,15 @@ inline void PoolMemoryAllocator<T>::free(void *deleted)
                 do
                 {
                         n_objects -= 1;
-                        if (nullptr == _freeStore_ObjectHead || restoredAddress < _freeStore_ObjectHead)
+                        if (nullptr == _freeStoreHead || restoredAddress < _freeStoreHead)
                         {
-                                restoredAddress->next = _freeStore_ObjectHead;
-                                _freeStore_ObjectHead = restoredAddress;
+                                restoredAddress->next = _freeStoreHead;
+                                _freeStoreHead = restoredAddress;
                         }
                         else
                         {
                                 //Normal Sort
-                                FreeStore *fs = _freeStore_ObjectHead;
+                                FreeStore *fs = _freeStoreHead;
                                 while (fs->next != nullptr && restoredAddress > fs->next)
                                 {
                                         fs = fs->next;
@@ -158,8 +157,8 @@ inline void PoolMemoryAllocator<T>::free(void *deleted)
         }
         else
         {
-                restoredAddress->next = _freeStore_ObjectHead;
-                _freeStore_ObjectHead = restoredAddress;
+                restoredAddress->next = _freeStoreHead;
+                _freeStoreHead = restoredAddress;
         }
 }
 
@@ -174,31 +173,31 @@ void PoolMemoryAllocator<T>::resetPoolSize(const std::size_t &poolSize)
 template <class T>
 void PoolMemoryAllocator<T>::init(void)
 {
-        _freeStore_ObjectHead = nullptr;
+        _freeStoreHead = nullptr;
         /* Allocating The Objects Pool  */
-        _pool_ObjectHead = new char[_objectSize * _poolSize];
-        FreeStore *head = reinterpret_cast<FreeStore *>(_pool_ObjectHead);
-        _freeStore_ObjectHead = head;
+        _poolHead = new char[_objectSize * _poolSize];
+        FreeStore *head = reinterpret_cast<FreeStore *>(_poolHead);
+        _freeStoreHead = head;
         for (std::size_t i = 1; i < _poolSize; i++)
         {
-                head->next = reinterpret_cast<FreeStore *>(reinterpret_cast<char *>(_freeStore_ObjectHead) + i * _objectSize);
+                head->next = reinterpret_cast<FreeStore *>(reinterpret_cast<char *>(_freeStoreHead) + i * _objectSize);
                 head = head->next;
         }
-        _pool_ObjectTail = head;
+        _poolTail = head;
         head->next = nullptr;
 }
 
 template <class T>
 void PoolMemoryAllocator<T>::cleanUp(void)
 {
-        if (nullptr != _pool_ObjectHead)
-                delete[] _pool_ObjectHead;
+        if (nullptr != _poolHead)
+                delete[] _poolHead;
 }
 
 template <class T>
 void PoolMemoryAllocator<T>::PrintMemory(void)
 {
-        FreeStore *FSHead = _freeStore_ObjectHead;
+        FreeStore *FSHead = _freeStoreHead;
         printf("================== [Free Blocks] ================== \n");
         if (nullptr == FSHead)
         {
@@ -210,11 +209,11 @@ void PoolMemoryAllocator<T>::PrintMemory(void)
                 unsigned int idx = 1;
                 for (; sPtr; sPtr = FSHead)
                 {
-                        if (_freeStore_ObjectHead == sPtr)
+                        if (_freeStoreHead == sPtr)
                         {
                                 printf("--> [0x%X] (pool head)\n", reinterpret_cast<std::uintptr_t>(sPtr));
                         }
-                        else if (_pool_ObjectTail == sPtr)
+                        else if (_poolTail == sPtr)
                         {
                                 printf("--> [0x%X] (pool end)\n", reinterpret_cast<std::uintptr_t>(sPtr));
                         }
