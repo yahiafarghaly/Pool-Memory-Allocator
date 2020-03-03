@@ -2,9 +2,9 @@
 
 rm *.out *~ 2> /dev/zero
 
-#echo "Standard C++ new/delete"
-#g++ -O3 -Wall -DNDEBUG -std=c++11 -s main.cc complex.cc -o STD_MEM.out -w
-#./STD_MEM.out
+echo "Standard C++ new/delete"
+g++ -O3 -Wall -DNDEBUG -std=c++11 -s main.cc complex.cc -o STD_MEM.out -w
+./STD_MEM.out
 echo "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
 echo "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
 echo "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"

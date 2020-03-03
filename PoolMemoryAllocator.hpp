@@ -128,6 +128,7 @@ inline void PoolMemoryAllocator<T>::free(void *deleted)
                 if (isItAllocated != _allocatedArraysTable.end())
                 {
                         n_objects = isItAllocated->second;
+                        _allocatedArraysTable.erase(reinterpret_cast<void *>(restoredAddress));
                 }
                 else
                 {
