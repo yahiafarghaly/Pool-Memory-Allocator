@@ -4,7 +4,7 @@
 #include "complex.hpp"
 #include "PoolMemoryAllocator.hpp"
 
-PoolMemoryAllocator<Complex> poolMemoryManager(7,false,true);
+PoolMemoryAllocator<Complex> poolMemoryManager(7, false, true);
 
 int main()
 {
@@ -14,8 +14,10 @@ int main()
         std::cout << "Time Test : ( Many (De-)Allocation Per Iteration )\n";
         std::cout << "no.Iteration = " << nIteration << " ,no.(De-)Allocation/Iteration = " << nAllocation << "\n";
         Complex *array[nAllocation];
-        Timer poolAllocationTime,allocationTime,freeTime;
+        Timer poolAllocationTime, allocationTime, freeTime;
         poolAllocationTime.setTimeUnit(TimeUnit::ms);
+        allocationTime.setTimeUnit(TimeUnit::ns);
+        freeTime.setTimeUnit(TimeUnit::ns);
         poolAllocationTime.start();
         for (int i = 0; i < nIteration; i++)
         {
@@ -63,7 +65,7 @@ int main()
                 ComplexArray[i].c = i * 2;
                 printf(" --> [%i] = %p , (r,c) = (%f,%f)\n", i, ComplexArray + i, ComplexArray[i].r, ComplexArray[i].c);
         }
-        c1 = new Complex(6,6);
+        c1 = new Complex(6, 6);
         poolMemoryManager.PrintMemory();
         delete[] ComplexArray;
         poolMemoryManager.PrintMemory();
@@ -89,6 +91,16 @@ int main()
         delete[] ComplexArray;
         poolMemoryManager.PrintMemory();
         ComplexArray = nullptr;
-
+        std::cout << "=======================================\n\n";
+        poolMemoryManager.resetPoolSize(5000);
+        printf("Array De/Allocation of 4000 objects Test Time\n");
+        allocationTime.start();
+        ComplexArray = new Complex[4000];
+        allocationTime.end();
+        freeTime.start();
+        delete[] ComplexArray;
+        freeTime.end();
+        std::cout << "Allocation Time = " << allocationTime.getTime() << allocationTime.getTimeUnitString() << std::endl;
+        std::cout << "De-Allocation Time = " << freeTime.getTime() << freeTime.getTimeUnitString() << std::endl;
         return 0;
 }
