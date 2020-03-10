@@ -4,11 +4,13 @@
 #include "complex.hpp"
 #include "PoolMemoryAllocator.hpp"
 
-PoolMemoryAllocator<Complex> poolMemoryManager(7, false, true);
+PoolMemoryAllocator<Complex> poolMemoryManager(10, false, true);
 
 int main()
 {
-        const int nIteration = 1000;
+        poolMemoryManager.printSkipListMemory();
+        return 0;
+        const int nIteration = 1;
         const int nAllocation = 2000;
         poolMemoryManager.resetPoolSize(nIteration * nAllocation);
         std::cout << "Time Test : ( Many (De-)Allocation Per Iteration )\n";

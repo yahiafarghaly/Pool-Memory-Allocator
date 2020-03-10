@@ -3,14 +3,16 @@
 #include <utility>
 #include <map>
 #include <stdio.h>
+#include <ctime>
 #include "IMemoryManager.hpp"
 
 template <class T>
 class PoolMemoryAllocator : public IMemoryManager
 {
+        const static int MAX_LEVEL = 2;
         struct FreeStore
         {
-                FreeStore *next;
+                FreeStore *next[MAX_LEVEL]; // No.Of Levels = MAX_LEVEL + 1
         };
 
         std::size_t _objectSize;
@@ -28,6 +30,19 @@ class PoolMemoryAllocator : public IMemoryManager
 
         void init(void);
         void cleanUp(void);
+        const inline int randomOffest()
+        {
+                static int lastIdx = 0;
+                auto getRand = [](const int &lo, const int &hi) {
+                        return rand() % ((hi - lo) + 1) + lo;
+                };
+                srand(time(NULL));
+                if (lastIdx > _poolSize)
+                        lastIdx = 0;
+                lastIdx++;
+                lastIdx = getRand(lastIdx, _poolSize - 1);
+                return lastIdx;
+        }
 
 public:
         explicit PoolMemoryAllocator(const std::size_t &poolSize = 1024, const bool &supportMultiThreading = false, const bool &supportArrayAllocation = false)
@@ -45,6 +60,7 @@ public:
         void free(void *) override;
         // Memory Methods
         void PrintMemory(void);
+        void printSkipListMemory();
         void resetPoolSize(const std::size_t &poolSize);
 };
 
@@ -57,7 +73,7 @@ inline void *PoolMemoryAllocator<T>::allocate(const std::size_t &size)
         }
         auto allocateObject = [this](void) -> void * {
                 FreeStore *head = _freeStoreHead;
-                _freeStoreHead = head->next;
+                _freeStoreHead = head->next[0];
                 return head;
         };
 
@@ -77,12 +93,12 @@ inline void *PoolMemoryAllocator<T>::allocate(const std::size_t &size)
                 auto head = _freeStoreHead;
                 auto objectCount = 0;
                 startAddress = reinterpret_cast<void *>(head);
-                for (; n_objects != objectCount || head->next == nullptr;)
+                for (; n_objects != objectCount || head->next[0] == nullptr;)
                 {
-                        if (reinterpret_cast<char *>(head) + _objectSize == reinterpret_cast<char *>(head->next))
+                        if (reinterpret_cast<char *>(head) + _objectSize == reinterpret_cast<char *>(head->next[0]))
                         {
                                 objectCount++;
-                                head = head->next;
+                                head = head->next[0];
                                 continue;
                         }
                         else
@@ -139,32 +155,32 @@ inline void PoolMemoryAllocator<T>::free(void *deleted)
                 FreeStore *fs = _freeStoreHead;
                 if (nullptr == _freeStoreHead || restoredAddress < _freeStoreHead)
                 {
-                        restoredAddress->next = _freeStoreHead;
+                        restoredAddress->next[0] = _freeStoreHead;
                         _freeStoreHead = restoredAddress;
                 }
                 else
                 {
-                        while (fs->next != nullptr && restoredAddress > fs->next)
+                        while (fs->next[0] != nullptr && restoredAddress > fs->next[0])
                         {
-                                fs = fs->next;
+                                fs = fs->next[0];
                         }
                         // Found the start point to restore array objects.
-                        restoredAddress->next = fs->next;
-                        fs->next = restoredAddress;
+                        restoredAddress->next[0] = fs->next[0];
+                        fs->next[0] = restoredAddress;
                 }
                 // Continue from where we stopped.
                 while (n_objects)
                 {
                         fs = restoredAddress;
                         restoredAddress = reinterpret_cast<FreeStore *>(reinterpret_cast<char *>(restoredAddress) + _objectSize);
-                        restoredAddress->next = fs->next;
-                        fs->next = restoredAddress;
+                        restoredAddress->next[0] = fs->next[0];
+                        fs->next[0] = restoredAddress;
                         n_objects -= 1;
                 }
         }
         else
         {
-                restoredAddress->next = _freeStoreHead;
+                restoredAddress->next[0] = _freeStoreHead;
                 _freeStoreHead = restoredAddress;
         }
 }
@@ -187,18 +203,37 @@ void PoolMemoryAllocator<T>::init(void)
         _freeStoreHead = head;
         for (std::size_t i = 1; i < _poolSize; i++)
         {
-                head->next = reinterpret_cast<FreeStore *>(reinterpret_cast<char *>(_freeStoreHead) + i * _objectSize);
-                head = head->next;
+                head->next[0] = reinterpret_cast<FreeStore *>(reinterpret_cast<char *>(_freeStoreHead) + i * _objectSize);
+                head = head->next[0];
         }
         _poolTail = head;
-        head->next = nullptr;
+        for (int lv = 0; lv < MAX_LEVEL; lv++)
+        {
+                head->next[lv] = nullptr;
+        }
+
+        for (int lv = 1; lv < MAX_LEVEL; lv++)
+        {
+                head = _freeStoreHead;
+                printf("p => 0x%X\n", reinterpret_cast<std::uintptr_t>(head));
+                int rOffestJump = 1;
+                for (; reinterpret_cast<void *>(head) != _poolTail;)
+                {
+                        rOffestJump = randomOffest();
+                        printf("LV = %d ,RJ = %d ==> ", lv, rOffestJump);
+                        head->next[lv] = reinterpret_cast<FreeStore *>(reinterpret_cast<char *>(_freeStoreHead) + rOffestJump * _objectSize);
+                        printf("p => 0x%X\n", reinterpret_cast<std::uintptr_t>(head->next[lv]));
+                        head = head->next[lv];
+                }
+        }
 }
 
 template <class T>
 void PoolMemoryAllocator<T>::cleanUp(void)
 {
         if (nullptr != _poolHead)
-                delete[] _poolHead;
+                ;
+        delete[] _poolHead;
 }
 
 template <class T>
@@ -229,7 +264,7 @@ void PoolMemoryAllocator<T>::PrintMemory(void)
                                 printf("--> 0x%X\n", reinterpret_cast<std::uintptr_t>(sPtr));
                         }
 
-                        FSHead = FSHead->next;
+                        FSHead = FSHead->next[0];
                         if (idx > _poolSize)
                         {
                                 printf("\n\033[1;31mBUG: @ idx = %u more than pool size = %lu objects\033[0m\n", idx, _poolSize);
@@ -237,5 +272,32 @@ void PoolMemoryAllocator<T>::PrintMemory(void)
                         ++idx;
                 }
                 printf("null \n");
+        }
+}
+
+template <class T>
+inline void PoolMemoryAllocator<T>::printSkipListMemory()
+{
+        FreeStore *FSHead = _freeStoreHead;
+        printf("================== [Free Blocks] ================== \n");
+        if (nullptr == FSHead)
+        {
+                printf("\tNo Free Blocks in the Pool\n");
+        }
+        else
+        {
+                for (int lv = 0; lv < MAX_LEVEL; lv++)
+                {
+                        printf("Lvl.No (%d)\n", lv);
+                        printf("=============\n");
+                        FSHead = _freeStoreHead;
+                        FreeStore *sPtr = FSHead;
+                        for (; sPtr; sPtr = FSHead)
+                        {
+                                printf("[0x%x] => ", reinterpret_cast<std::uintptr_t>(sPtr));
+                                FSHead = FSHead->next[lv];
+                        }
+                        printf("null \n");
+                }
         }
 }
