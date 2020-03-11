@@ -9,7 +9,7 @@
 template <class T>
 class PoolMemoryAllocator : public IMemoryManager
 {
-        const static int MAX_LEVEL = 2;
+        const static int MAX_LEVEL = 3;
         struct FreeStore
         {
                 FreeStore *next[MAX_LEVEL]; // No.Of Levels = MAX_LEVEL + 1
@@ -37,7 +37,7 @@ class PoolMemoryAllocator : public IMemoryManager
                         return rand() % ((hi - lo) + 1) + lo;
                 };
                 srand(time(NULL));
-                if (lastIdx > _poolSize)
+                if ((lastIdx + 1) >= _poolSize)
                         lastIdx = 0;
                 lastIdx++;
                 lastIdx = getRand(lastIdx, _poolSize - 1);
@@ -232,8 +232,7 @@ template <class T>
 void PoolMemoryAllocator<T>::cleanUp(void)
 {
         if (nullptr != _poolHead)
-                ;
-        delete[] _poolHead;
+                delete[] _poolHead;
 }
 
 template <class T>
