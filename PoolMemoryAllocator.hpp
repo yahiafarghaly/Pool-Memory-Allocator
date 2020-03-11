@@ -9,7 +9,7 @@
 template <class T>
 class PoolMemoryAllocator : public IMemoryManager
 {
-        const static int MAX_LEVEL = 3;
+        const static int MAX_LEVEL = 2;
         struct FreeStore
         {
                 FreeStore *next[MAX_LEVEL]; // No.Of Levels = MAX_LEVEL + 1
@@ -30,18 +30,30 @@ class PoolMemoryAllocator : public IMemoryManager
 
         void init(void);
         void cleanUp(void);
-        const inline int randomOffest()
+        const inline int randomOffest(const int &currentlevel)
         {
                 static int lastIdx = 0;
                 auto getRand = [](const int &lo, const int &hi) {
                         return rand() % ((hi - lo) + 1) + lo;
                 };
-                srand(time(NULL));
+                srand(time(NULL) * currentlevel);
                 if ((lastIdx + 1) >= _poolSize)
                         lastIdx = 0;
                 lastIdx++;
                 lastIdx = getRand(lastIdx, _poolSize - 1);
                 return lastIdx;
+        }
+        const inline int randomLevel(const int &min, const int &max)
+        {
+                static int idx = 0;
+                auto getRand = [](const int &lo, const int &hi) {
+                        return rand() % ((hi - lo) + 1) + lo;
+                };
+                srand(time(NULL) * idx);
+                if ((idx + 1) >= _poolSize)
+                        idx = 0;
+                idx++;
+                return getRand(min, max);
         }
 
 public:
@@ -196,35 +208,50 @@ void PoolMemoryAllocator<T>::resetPoolSize(const std::size_t &poolSize)
 template <class T>
 void PoolMemoryAllocator<T>::init(void)
 {
+        if (_poolSize <= 0)
+        {
+                printf("\n\033[1;31mCannot allocate zero pool size\033[0m\n");
+                return;
+        }
         _freeStoreHead = nullptr;
         /* Allocating The Objects Pool  */
         _poolHead = new char[_objectSize * _poolSize];
-        FreeStore *head = reinterpret_cast<FreeStore *>(_poolHead);
-        _freeStoreHead = head;
+        _poolTail = reinterpret_cast<FreeStore *>(reinterpret_cast<char *>(_poolHead) + (_poolSize - 1) * _objectSize);
+        _freeStoreHead = reinterpret_cast<FreeStore *>(_poolHead);
+
+        for (int lv = 0; lv < MAX_LEVEL; lv++)
+        {
+                _freeStoreHead->next[lv] = reinterpret_cast<FreeStore *>(_poolTail);
+                (reinterpret_cast<FreeStore *>(_poolTail))->next[lv] = nullptr;
+        }
+
+        FreeStore *head = _freeStoreHead;
         for (std::size_t i = 1; i < _poolSize; i++)
         {
                 head->next[0] = reinterpret_cast<FreeStore *>(reinterpret_cast<char *>(_freeStoreHead) + i * _objectSize);
                 head = head->next[0];
         }
-        _poolTail = head;
-        for (int lv = 0; lv < MAX_LEVEL; lv++)
-        {
-                head->next[lv] = nullptr;
-        }
 
-        for (int lv = 1; lv < MAX_LEVEL; lv++)
+        FreeStore *lastNodePerLevel[MAX_LEVEL] = {nullptr};
+        FreeStore* walkingPtr = nullptr;
+
+        for(int lv = 1; lv < MAX_LEVEL;lv++)
         {
-                head = _freeStoreHead;
-                printf("p => 0x%X\n", reinterpret_cast<std::uintptr_t>(head));
-                int rOffestJump = 1;
-                for (; reinterpret_cast<void *>(head) != _poolTail;)
+                lastNodePerLevel[lv] = _freeStoreHead;
+        }
+        walkingPtr = _freeStoreHead;
+        walkingPtr = walkingPtr->next[0];
+        while(walkingPtr != reinterpret_cast<FreeStore*>(_poolTail))
+        {
+                int rLevel = randomLevel(0, MAX_LEVEL - 1);
+                printf("Lvl = %d ,p => 0x%X\n", rLevel, reinterpret_cast<std::uintptr_t>(walkingPtr));
+                for(int lv = 1; lv <= rLevel;lv++)
                 {
-                        rOffestJump = randomOffest();
-                        printf("LV = %d ,RJ = %d ==> ", lv, rOffestJump);
-                        head->next[lv] = reinterpret_cast<FreeStore *>(reinterpret_cast<char *>(_freeStoreHead) + rOffestJump * _objectSize);
-                        printf("p => 0x%X\n", reinterpret_cast<std::uintptr_t>(head->next[lv]));
-                        head = head->next[lv];
+                        walkingPtr->next[lv] = lastNodePerLevel[lv]->next[lv];
+                        lastNodePerLevel[lv]->next[lv] = walkingPtr;
+                        lastNodePerLevel[lv] = walkingPtr;
                 }
+                walkingPtr = walkingPtr->next[0];
         }
 }
 
@@ -287,6 +314,7 @@ inline void PoolMemoryAllocator<T>::printSkipListMemory()
         {
                 for (int lv = 0; lv < MAX_LEVEL; lv++)
                 {
+                        int index = 0;
                         printf("Lvl.No (%d)\n", lv);
                         printf("=============\n");
                         FSHead = _freeStoreHead;
@@ -295,6 +323,12 @@ inline void PoolMemoryAllocator<T>::printSkipListMemory()
                         {
                                 printf("[0x%x] => ", reinterpret_cast<std::uintptr_t>(sPtr));
                                 FSHead = FSHead->next[lv];
+                                if (index > _poolSize)
+                                {
+                                        printf("STOPPED Exceeds the pool size !\n");
+                                        exit(EXIT_FAILURE);
+                                }
+                                index++;
                         }
                         printf("null \n");
                 }
