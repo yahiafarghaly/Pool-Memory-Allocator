@@ -9,7 +9,7 @@
 template <class T>
 class PoolMemoryAllocator : public IMemoryManager
 {
-        const static int MAX_LEVEL = 3;
+        const static int MAX_LEVEL = 5;
         struct FreeStore
         {
                 FreeStore *next[MAX_LEVEL]; // No.Of Levels = MAX_LEVEL + 1
@@ -61,7 +61,7 @@ public:
             : _supportMultiThreading(supportArrayAllocation), _supportArrayAllocation(supportArrayAllocation)
         {
                 _poolSize = poolSize;
-                _objectSize = (sizeof(T) > sizeof(FreeStore *)) ? sizeof(T) : sizeof(FreeStore *);
+                _objectSize = (sizeof(T) > sizeof(FreeStore)) ? sizeof(T) : sizeof(FreeStore);
                 init();
         }
         virtual ~PoolMemoryAllocator()
