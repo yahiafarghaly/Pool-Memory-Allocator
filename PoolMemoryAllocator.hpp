@@ -9,7 +9,7 @@
 template <class T>
 class PoolMemoryAllocator : public IMemoryManager
 {
-        const static int MAX_LEVEL = 2;
+        const static int MAX_LEVEL = 3;
         struct FreeStore
         {
                 FreeStore *next[MAX_LEVEL]; // No.Of Levels = MAX_LEVEL + 1
@@ -228,30 +228,52 @@ void PoolMemoryAllocator<T>::init(void)
         FreeStore *head = _freeStoreHead;
         for (std::size_t i = 1; i < _poolSize; i++)
         {
+                //! bug
+                /*!
+                 * @ i = 2, what is written to head->next[0] is written also to _freeStoreHead->next[2] !!
+                 * earsing what is initally level 2 pointing to pool tail.
+                 * even trying to re-write to _freeStoreHead->next[2], it
+                 * affects head->next[0] @ i = 2 (what is pointing to ?)
+                 */
                 head->next[0] = reinterpret_cast<FreeStore *>(reinterpret_cast<char *>(_freeStoreHead) + i * _objectSize);
                 head = head->next[0];
         }
 
         FreeStore *lastNodePerLevel[MAX_LEVEL] = {nullptr};
-        FreeStore* walkingPtr = nullptr;
+        FreeStore *walkingPtr = nullptr;
 
-        for(int lv = 1; lv < MAX_LEVEL;lv++)
+        for (int lv = 1; lv < MAX_LEVEL; lv++)
         {
                 lastNodePerLevel[lv] = _freeStoreHead;
+                lastNodePerLevel[lv]->next[lv] = _freeStoreHead->next[lv];
+                printf("init LNPL[%d] = 0x%x\n", lv, reinterpret_cast<std::uintptr_t>(lastNodePerLevel[lv]));
+                printf("init LNPL[%d]->next[%d] = 0x%x\n", lv, lv, reinterpret_cast<std::uintptr_t>(lastNodePerLevel[lv]->next[lv]));
         }
         walkingPtr = _freeStoreHead;
         walkingPtr = walkingPtr->next[0];
-        while(walkingPtr != reinterpret_cast<FreeStore*>(_poolTail))
+        int stop = 0;
+        while (walkingPtr != reinterpret_cast<FreeStore *>(_poolTail))
         {
                 int rLevel = randomLevel(0, MAX_LEVEL - 1);
-                printf("Lvl = %d ,p => 0x%X\n", rLevel, reinterpret_cast<std::uintptr_t>(walkingPtr));
-                for(int lv = 1; lv <= rLevel;lv++)
+                printf("-----------------------\n");
+                printf("wp = 0x%x, Lv = %d,", reinterpret_cast<std::uintptr_t>(walkingPtr), rLevel);
+                for (int lv = 1; lv <= rLevel; lv++)
                 {
+                        printf("LNPL[%d] = 0x%x , ", lv, reinterpret_cast<std::uintptr_t>(lastNodePerLevel[lv]));
+                        printf("LNPL[%d]->next[%d] = 0x%x\n", lv, lv, reinterpret_cast<std::uintptr_t>(lastNodePerLevel[lv]->next[lv]));
                         walkingPtr->next[lv] = lastNodePerLevel[lv]->next[lv];
                         lastNodePerLevel[lv]->next[lv] = walkingPtr;
-                        lastNodePerLevel[lv] = walkingPtr;
+                        lastNodePerLevel[lv] = lastNodePerLevel[lv]->next[lv];
+                        printf("(update)LNPL[%d] = 0x%x\n", lv, reinterpret_cast<std::uintptr_t>(lastNodePerLevel[lv]));
                 }
                 walkingPtr = walkingPtr->next[0];
+                printf("\n");
+                if (_poolSize < stop)
+                {
+                        printf("Exceeds pool nodes by %d\n", stop);
+                        exit(EXIT_FAILURE);
+                }
+                ++stop;
         }
 }
 
