@@ -9,7 +9,7 @@
 template <class T>
 class PoolMemoryAllocator : public IMemoryManager
 {
-        const static int MAX_LEVEL = 5;
+        const static int MAX_LEVEL = 16;
         struct FreeStore
         {
                 FreeStore *next[MAX_LEVEL]; // No.Of Levels = MAX_LEVEL + 1
@@ -30,30 +30,16 @@ class PoolMemoryAllocator : public IMemoryManager
 
         void init(void);
         void cleanUp(void);
-        const inline int randomOffest(const int &currentlevel)
-        {
-                static int lastIdx = 0;
-                auto getRand = [](const int &lo, const int &hi) {
-                        return rand() % ((hi - lo) + 1) + lo;
-                };
-                srand(time(NULL) * currentlevel);
-                if ((lastIdx + 1) >= _poolSize)
-                        lastIdx = 0;
-                lastIdx++;
-                lastIdx = getRand(lastIdx, _poolSize - 1);
-                return lastIdx;
-        }
+
         const inline int randomLevel(const int &min, const int &max)
         {
-                static int idx = 0;
-                auto getRand = [](const int &lo, const int &hi) {
-                        return rand() % ((hi - lo) + 1) + lo;
-                };
-                srand(time(NULL) * idx);
-                if ((idx + 1) >= _poolSize)
-                        idx = 0;
-                idx++;
-                return getRand(min, max);
+                int level = 0;
+                double p = 0.5;
+                while ((rand() / double(RAND_MAX)) < p && level < MAX_LEVEL)
+                {
+                        level++;
+                }
+                return level;
         }
 
 public:
@@ -73,6 +59,7 @@ public:
         // Memory Methods
         void PrintMemory(void);
         void printSkipListMemory();
+        void printSkipListLevelsCount();
         void resetPoolSize(const std::size_t &poolSize);
 };
 
@@ -228,13 +215,6 @@ void PoolMemoryAllocator<T>::init(void)
         FreeStore *head = _freeStoreHead;
         for (std::size_t i = 1; i < _poolSize; i++)
         {
-                //! bug
-                /*!
-                 * @ i = 2, what is written to head->next[0] is written also to _freeStoreHead->next[2] !!
-                 * earsing what is initally level 2 pointing to pool tail.
-                 * even trying to re-write to _freeStoreHead->next[2], it
-                 * affects head->next[0] @ i = 2 (what is pointing to ?)
-                 */
                 head->next[0] = reinterpret_cast<FreeStore *>(reinterpret_cast<char *>(_freeStoreHead) + i * _objectSize);
                 head = head->next[0];
         }
@@ -353,6 +333,38 @@ inline void PoolMemoryAllocator<T>::printSkipListMemory()
                                 index++;
                         }
                         printf("null \n");
+                }
+        }
+}
+
+template <class T>
+inline void PoolMemoryAllocator<T>::printSkipListLevelsCount()
+{
+        FreeStore *FSHead = _freeStoreHead;
+        printf("================== [Free Blocks] ================== \n");
+        if (nullptr == FSHead)
+        {
+                printf("\tNo Free Blocks in the Pool\n");
+        }
+        else
+        {
+                for (int lv = 0; lv < MAX_LEVEL; lv++)
+                {
+                        int index = 0;
+                        FSHead = _freeStoreHead;
+                        FreeStore *sPtr = FSHead;
+                        for (; sPtr; sPtr = FSHead)
+                        {
+                                FSHead = FSHead->next[lv];
+                                if (index > _poolSize)
+                                {
+                                        printf("STOPPED Exceeds the pool size !\n");
+                                        exit(EXIT_FAILURE);
+                                }
+                                index++;
+                        }
+                        printf("Lvl.No = %d, #Nodes = %d\n", lv,index);
+                        printf("=============\n");
                 }
         }
 }

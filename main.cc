@@ -4,11 +4,12 @@
 #include "complex.hpp"
 #include "PoolMemoryAllocator.hpp"
 
-PoolMemoryAllocator<Complex> poolMemoryManager(12, false, true);
+PoolMemoryAllocator<Complex> poolMemoryManager(2000, false, true);
 
 int main()
 {
         poolMemoryManager.printSkipListMemory();
+        poolMemoryManager.printSkipListLevelsCount();
         return 0;
         const int nIteration = 1;
         const int nAllocation = 2000;
