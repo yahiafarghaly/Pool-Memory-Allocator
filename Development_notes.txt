@@ -1,0 +1,28 @@
+Standard C++ new/delete
+        Time Test : ( Many (De-)Allocation Per Iteration )
+                no.Iteration = 1 ,no.(De-)Allocation/Iteration = 20000
+                Time Test = 0 ms
+                Allocation Time = 702518 ns
+                De-Allocation Time = 159 us
+=======================================
+
+        Array De/Allocation of 4000 objects Test Time
+                Allocation Time = 3141 ns
+                De-Allocation Time = 20 us
+
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Pool Memory Technique [sorted linkedlist with linear search]
+
+        Time Test : ( Many (De-)Allocation Per Iteration )
+                no.Iteration = 1 ,no.(De-)Allocation/Iteration = 20000
+                Time Test = 246 ms
+                Allocation Time = 129965 ns
+                De-Allocation Time = 246073 us
+=======================================
+
+        Array De/Allocation of 4000 objects Test Time
+                Allocation Time = 33402 ns
+                De-Allocation Time = 6 us
