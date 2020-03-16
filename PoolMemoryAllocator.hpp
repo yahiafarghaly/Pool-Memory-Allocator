@@ -100,10 +100,8 @@ inline void *PoolMemoryAllocator<T>::allocate(const std::size_t &size)
                 {
                         startAddress = allocateObject();
                         _allocatedArraysTable.insert(std::pair<void *, std::size_t>(startAddress, n_objects));
-                        for (auto i = 0; i < n_objects - 1; i++)
-                        {
-                                allocateObject();
-                        }
+                        head = _freeStoreHead;
+                        _freeStoreHead = reinterpret_cast<FreeStore*>(reinterpret_cast<char *>(head) + (n_objects - 1) * _objectSize);
                 }
         }
         return startAddress;

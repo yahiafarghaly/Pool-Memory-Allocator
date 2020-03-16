@@ -24,5 +24,5 @@ Pool Memory Technique [sorted linkedlist with linear search]
 =======================================
 
         Array De/Allocation of 4000 objects Test Time
-                Allocation Time = 33402 ns
+                Allocation Time = 18570 ns
                 De-Allocation Time = 6 us
